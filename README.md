@@ -1,7 +1,7 @@
-# Low-Code Starter Stack (Data Engineering Platform)
+# Low-Code Starter Stack
 
 ## Purpose
-This project is a personal starter blueprint designed to facilitate the rapid deployment of a low-code automation and data engineering environment. It bridges the gap between **n8n** (automation), **NoSQL/Relational databases**, and **S3-compatible storage**, providing a robust foundation for projects.
+This project is a personal starter blueprint designed to facilitate the rapid deployment of a low-code automation. It bridges the gap between **n8n** (automation), **NoSQL/Relational databases**, and **S3-compatible storage**, providing a robust foundation for projects.
 
 ## Technical Information
 The stack is built on a **Twelve-Factor App** methodology, utilizing Docker Compose for container orchestration on **Debian 13**. It features strict service dependency management through health checks.
