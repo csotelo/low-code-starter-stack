@@ -1,0 +1,175 @@
+version: '3.8'
+
+services:
+  # --- DATABASES & STORAGE ---
+  postgres_n8n:
+    image: postgres:16-alpine
+    container_name: postgres_n8n
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:4.4
+    container_name: mongo_db
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - "0.0.0.0:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: redis_broker
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_vector
+    restart: always
+    ports:
+      - "0.0.0.0:6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio_s3
+    restart: always
+    ports:
+      - "0.0.0.0:9000:9000"
+      - "0.0.0.0:9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  # --- MANAGEMENT & UI ---
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo_ui
+    depends_on:
+      - mongodb
+    ports:
+      - "0.0.0.0:8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_ROOT_USER}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_ROOT_PASSWORD}
+      ME_CONFIG_MONGODB_SERVER: mongodb
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis_ui
+    depends_on:
+      - redis
+    ports:
+      - "0.0.0.0:8082:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: log_viewer
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "0.0.0.0:8888:8080"
+
+  # --- AUTOMATION & BACKUPS ---
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n_app
+    restart: always
+    depends_on:
+      postgres_n8n:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:5678:5678"
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres_n8n
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./versioned_flows:/home/node/workflows
+
+  db_backup:
+    image: tiredofit/db-backup:latest
+    container_name: daily_backups
+    depends_on:
+      - postgres_n8n
+      - mongodb
+      - minio
+    environment:
+      - DB01_TYPE=pgsql
+      - DB01_HOST=postgres_n8n
+      - DB01_NAME=${POSTGRES_DB}
+      - DB01_USER=${POSTGRES_USER}
+      - DB01_PASS=${POSTGRES_PASSWORD}
+      - DB02_TYPE=mongo
+      - DB02_HOST=mongodb
+      - DB02_USER=${MONGO_ROOT_USER}
+      - DB02_PASS=${MONGO_ROOT_PASSWORD}
+      - SCHED01_TIME=0300
+      - COMPRESSION=GZ
+      - RETENTION_DAYS=7
+      - STORAGE_TYPE=s3
+      - S3_HOST=minio
+      - S3_PORT=9000
+      - S3_BUCKET=backups
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - S3_PROTO=http
+
+  scheduler:
+    image: mcuadros/ofelia:latest
+    container_name: n8n_scheduler
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      ofelia.job-exec.n8n-export.schedule: "@daily"
+      ofelia.job-exec.n8n-export.container: "n8n_app"
+      ofelia.job-exec.n8n-export.command: "n8n export:workflow --all --output=/home/node/workflows/"
+
+volumes:
+  postgres_data:
+  mongo_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+  n8n_data:

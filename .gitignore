@@ -1,0 +1,27 @@
+# --- Python ---
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# --- Environment & Secrets ---
+.env
+*.env
+.secrets/
+
+# --- Docker & Databases ---
+# We ignore the actual data, but keep the folder structure if needed
+postgres_data/
+mongo_data/
+n8n_data/
+redis_data/
+
+# --- n8n Specific ---
+# We ignore the active data
+# which we want to track.
+node_modules/
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
